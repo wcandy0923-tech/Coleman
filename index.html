@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>教育拓荒者：雙陣營對決</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body {
+            background-color: #f3f4f6;
+            font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+            overflow-x: hidden;
+            user-select: none;
+        }
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 4px;
+            padding: 10px;
+            background-color: #e5e7eb;
+            border-radius: 12px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .tile {
+            aspect-ratio: 1 / 1;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            cursor: pointer;
+            position: relative;
+        }
+        .tile-unowned {
+            background-color: #d1d5db;
+            box-shadow: 0 4px 0 #9ca3af;
+        }
+        /* Team 0 (Blue) Styles */
+        .tile-owned-0 { background-color: #3b82f6; box-shadow: 0 4px 0 #2563eb; color: white; cursor: default; }
+        .tile-conquerable-0 { background-color: #bfdbfe; box-shadow: 0 4px 0 #60a5fa; animation: pulseBlue 1.5s infinite; }
+        .tile-conquerable-0:hover { background-color: #93c5fd; transform: translateY(-2px); box-shadow: 0 6px 0 #3b82f6; }
+        
+        /* Team 1 (Red) Styles */
+        .tile-owned-1 { background-color: #ef4444; box-shadow: 0 4px 0 #dc2626; color: white; cursor: default; }
+        .tile-conquerable-1 { background-color: #fecaca; box-shadow: 0 4px 0 #f87171; animation: pulseRed 1.5s infinite; }
+        .tile-conquerable-1:hover { background-color: #fca5a5; transform: translateY(-2px); box-shadow: 0 6px 0 #ef4444; }
+        
+        .tile:active { transform: translateY(4px) !important; box-shadow: 0 0 0 transparent !important; }
+        
+        @keyframes pulseBlue { 0% { transform: scale(1); } 50% { transform: scale(1.05); background-color: #93c5fd; } 100% { transform: scale(1); } }
+        @keyframes pulseRed { 0% { transform: scale(1); } 50% { transform: scale(1.05); background-color: #fca5a5; } 100% { transform: scale(1); } }
+        
+        .modal-enter { animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(20px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        
+        /* 視覺回饋動畫 */
+        .feedback-overlay { animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        @keyframes popIn { 0% { opacity: 0; transform: scale(0.5) rotate(-10deg); } 100% { opacity: 1; transform: scale(1) rotate(0deg); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- 陣營設定 ---
+        const TEAMS = [
+            { id: 0, name: "卓越先鋒 (藍隊)", color: "blue", tailwindBg: "bg-blue-500", tailwindText: "text-blue-500", icon: "fa-shield-halved" },
+            { id: 1, name: "啟發舵手 (紅隊)", color: "red", tailwindBg: "bg-red-500", tailwindText: "text-red-500", icon: "fa-fire-flame-curved" }
+        ];
+
+        // --- 題庫設定 ---
+        const QUESTION_BANK = [
+            { id: 1, question: "1966年柯曼報告中最震驚教育界的發現為何？", options: ["學校硬體設備決定了成績", "家庭社經背景影響遠大於學校資源", "教師學歷是最關鍵因素", "增加經費能成比例提升成效"], correctIndex: 1, explanation: "打破「學校萬能論」，家庭社經地位比學校硬體資源更能預測學業表現。" },
+            { id: 2, question: "柯曼報告指出哪一項因素對弱勢學生學業影響最顯著？", options: ["圖書館藏書量", "教師年資", "同儕群體的社經組成", "學校午餐"], correctIndex: 2, explanation: "「同儕效應」非常強大，弱勢學生若進入中產階級為主的學校，成就會顯著提升。" },
+            { id: 3, question: "柯曼報告促使對「教育機會均等」產生何種典範轉移？", options: ["關注產出均等轉向投入均等", "關注投入均等轉向產出/結果的均等", "退回到形式均等", "改為菁英教育"], correctIndex: 1, explanation: "從關注經費投入，轉向關注最終學習成果的實質均等。" },
+            { id: 4, question: "基於同儕效應發現，美國政府推動了哪項爭議政策？", options: ["零容忍政策", "特許學校", "強制校車接送計畫(Busing)", "適性揚才"], correctIndex: 2, explanation: "強制跨學區接送學生，促成不同階級與種族融合，以發揮正向同儕影響。" },
+            { id: 5, question: "面對柯曼報告，現代教師應具備何種專業認知？", options: ["對弱勢學生不抱期待", "教師素質對弱勢的影響力大於優勢學生", "學校無效", "重心放在硬體"], correctIndex: 1, explanation: "優良的教師素質（口語、期望值）對弱勢學生的拉拔效果最為明顯。" },
+            { id: 6, question: "柯曼報告指出的「物理與財務資源」，與學業成就的相關性？", options: ["極高", "中等", "極低", "無法測量"], correctIndex: 2, explanation: "硬體資源差異（藏書、實驗室）對成績的影響微乎其微。" }
+        ];
+
+        const GRID_SIZE = 10;
+        
+        // --- Web Audio 音效產生器 ---
+        const playTone = (ctx, freq, type, duration, startTime) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, startTime);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(startTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+            osc.stop(startTime + duration);
+        };
+
+        const playCorrectSound = (ctx) => {
+            if(!ctx) return;
+            if(ctx.state === 'suspended') ctx.resume();
+            const now = ctx.currentTime;
+            playTone(ctx, 523.25, 'sine', 0.2, now);       // C5
+            playTone(ctx, 659.25, 'sine', 0.2, now + 0.1); // E5
+            playTone(ctx, 783.99, 'sine', 0.2, now + 0.2); // G5
+            playTone(ctx, 1046.50, 'sine', 0.4, now + 0.3); // C6
+        };
+
+        const playWrongSound = (ctx) => {
+            if(!ctx) return;
+            if(ctx.state === 'suspended') ctx.resume();
+            const now = ctx.currentTime;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(300, now);
+            osc.frequency.exponentialRampToValueAtTime(100, now + 0.6); // 下滑音
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+            osc.stop(now + 0.6);
+        };
+
+        const App = () => {
+            // 系統與遊戲狀態
+            const [audioCtx, setAudioCtx] = useState(null);
+            const [gameState, setGameState] = useState('setup'); // setup, playing, ended
+            const [timeSetting, setTimeSetting] = useState(180); // 預設3分鐘
+            const [timeLeft, setTimeLeft] = useState(180);
+            
+            // 對戰狀態
+            const [board, setBoard] = useState({}); // { "x,y": teamId }
+            const [turn, setTurn] = useState(0); // 0 (藍隊), 1 (紅隊)
+            const [scores, setScores] = useState({ 0: 1, 1: 1 });
+            const [logs, setLogs] = useState([]);
+            const [winner, setWinner] = useState(null); // null, 0, 1, 'draw'
+            const [endReason, setEndReason] = useState("");
+
+            // 答題與回饋狀態
+            const [activeTile, setActiveTile] = useState(null);
+            const [showModal, setShowModal] = useState(false);
+            const [currentQuestion, setCurrentQuestion] = useState(null);
+            const [selectedOption, setSelectedOption] = useState(null);
+            const [showVisualFeedback, setShowVisualFeedback] = useState(null); // 'correct' or 'wrong'
+
+            // --- 計時器邏輯 ---
+            useEffect(() => {
+                let timer;
+                if (gameState === 'playing' && timeLeft > 0) {
+                    timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
+                } else if (timeLeft === 0 && gameState === 'playing') {
+                    handleGameEnd("時間到！");
+                }
+                return () => clearInterval(timer);
+            }, [gameState, timeLeft]);
+
+            const formatTime = (seconds) => {
+                const m = Math.floor(seconds / 60);
+                const s = seconds % 60;
+                return `${m}:${s < 10 ? '0' : ''}${s}`;
+            };
+
+            // --- 遊戲核心邏輯 ---
+            const startGame = () => {
+                // 初始化 AudioContext (需由使用者行為觸發)
+                if (!audioCtx) {
+                    setAudioCtx(new (window.AudioContext || window.webkitAudioContext)());
+                }
+                
+                // 重置版圖與狀態
+                const initialBoard = { "2,4": 0, "7,4": 1 }; // 藍隊左側，紅隊右側
+                setBoard(initialBoard);
+                setScores({ 0: 1, 1: 1 });
+                setTurn(0);
+                setTimeLeft(timeSetting);
+                setWinner(null);
+                setLogs([{ time: new Date().toLocaleTimeString(), msg: "遊戲開始！雙方進入戰場。" }]);
+                setGameState('playing');
+            };
+
+            // 取得某隊的「可佔領」格子（周圍無人佔領的空地）
+            const getValidMoves = (teamId, currentBoard) => {
+                const moves = [];
+                for (let y = 0; y < GRID_SIZE; y++) {
+                    for (let x = 0; x < GRID_SIZE; x++) {
+                        const id = `${x},${y}`;
+                        if (currentBoard[id] !== undefined) continue; // 已被佔領
+                        
+                        const adjacent = [[x,y-1], [x,y+1], [x-1,y], [x+1,y]];
+                        const isAdjacentToAlly = adjacent.some(([ax, ay]) => currentBoard[`${ax},${ay}`] === teamId);
+                        if (isAdjacentToAlly) moves.push(id);
+                    }
+                }
+                return moves;
+            };
+
+            const isConquerable = (x, y, teamId) => {
+                const id = `${x},${y}`;
+                if (board[id] !== undefined) return false;
+                const adjacent = [[x,y-1], [x,y+1], [x-1,y], [x+1,y]];
+                return adjacent.some(([ax, ay]) => board[`${ax},${ay}`] === teamId);
+            };
+
+            const checkWinCondition = (currentBoard, currentScores, nextTurn) => {
+                // 1. 版圖全滿
+                if (Object.keys(currentBoard).length === GRID_SIZE * GRID_SIZE) {
+                    handleGameEnd("版圖已滿！", currentScores);
+                    return true;
+                }
+                
+                // 2. 包圍機制判斷：下一順位的隊伍是否有合法步數？
+                const nextMoves = getValidMoves(nextTurn, currentBoard);
+                if (nextMoves.length === 0) {
+                    // 下一順位隊伍沒有任何空地可以擴張，被包圍了！
+                    const winningTeam = 1 - nextTurn;
+                    setWinner(winningTeam);
+                    setEndReason(`【包圍殲滅】${TEAMS[nextTurn].name} 已無路可走，全軍覆沒！`);
+                    setGameState('ended');
+                    return true;
+                }
+                return false;
+            };
+
+            const handleGameEnd = (reason, finalScores = scores) => {
+                setEndReason(reason);
+                if (finalScores[0] > finalScores[1]) setWinner(0);
+                else if (finalScores[1] > finalScores[0]) setWinner(1);
+                else setWinner('draw');
+                setGameState('ended');
+            };
+
+            const addLog = (msg) => {
+                setLogs(prev => [{ time: new Date().toLocaleTimeString(), msg }, ...prev].slice(0, 6));
+            };
+
+            const handleTileClick = (x, y) => {
+                if (gameState !== 'playing') return;
+                if (isConquerable(x, y, turn)) {
+                    const randomQ = QUESTION_BANK[Math.floor(Math.random() * QUESTION_BANK.length)];
+                    setCurrentQuestion(randomQ);
+                    setActiveTile({x, y});
+                    setSelectedOption(null);
+                    setShowVisualFeedback(null);
+                    setShowModal(true);
+                }
+            };
+
+            const processAnswer = (idx) => {
+                if (selectedOption !== null) return;
+                setSelectedOption(idx);
+                
+                const isCorrect = idx === currentQuestion.correctIndex;
+                const teamName = TEAMS[turn].name;
+
+                // 立即鎖定畫面並顯示強烈視覺/聽覺回饋
+                setShowVisualFeedback(isCorrect ? 'correct' : 'wrong');
+                
+                if (isCorrect) {
+                    playCorrectSound(audioCtx);
+                    addLog(`[${teamName}] 答對了！成功佔領領地。`);
+                } else {
+                    playWrongSound(audioCtx);
+                    addLog(`[${teamName}] 答錯了！擴張失敗。`);
+                }
+
+                // 停頓 2.5 秒讓玩家看回饋動畫與解析
+                setTimeout(() => {
+                    let newBoard = { ...board };
+                    let newScores = { ...scores };
+
+                    if (isCorrect) {
+                        newBoard[`${activeTile.x},${activeTile.y}`] = turn;
+                        newScores[turn] += 1;
+                        setBoard(newBoard);
+                        setScores(newScores);
+                    }
+
+                    setShowModal(false);
+                    setShowVisualFeedback(null);
+                    
+                    const nextTurn = 1 - turn;
+                    
+                    // 結算是否觸發結束條件
+                    const isEnded = checkWinCondition(newBoard, newScores, nextTurn);
+                    if (!isEnded) {
+                        setTurn(nextTurn); // 換對手
+                    }
+                }, 2500);
+            };
+
+            // --- 渲染：設定畫面 ---
+            if (gameState === 'setup') {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-red-50 p-4">
+                        <div className="bg-white p-10 rounded-3xl shadow-2xl max-w-lg w-full text-center border-t-8 border-indigo-500">
+                            <h1 className="text-4xl font-black text-gray-800 mb-4">
+                                教育拓荒者<br/><span className="text-2xl text-indigo-600 block mt-2">雙陣營對決</span>
+                            </h1>
+                            <p className="text-gray-600 mb-8 font-medium">柯曼報告：家庭背景 vs 學校資源</p>
+                            
+                            <div className="bg-gray-100 p-6 rounded-2xl mb-8 text-left">
+                                <h3 className="font-bold text-gray-800 mb-3"><i className="fa-solid fa-scroll mr-2"></i> 規則說明：</h3>
+                                <ul className="text-sm text-gray-700 space-y-2 list-disc pl-5">
+                                    <li>系統將隨機分出<b className="text-blue-600">藍</b>、<b className="text-red-600">紅</b>兩隊。</li>
+                                    <li>點擊閃爍的領地答題，答對即可佔領。</li>
+                                    <li><b className="text-red-600">包圍殲滅：</b>若一隊的領地被敵方完全包圍(無灰色空地可選)，即直接判定落敗！</li>
+                                    <li>時間結束時，佔領格數多者獲勝。</li>
+                                </ul>
+                            </div>
+
+                            <div className="mb-8 flex justify-center items-center gap-4">
+                                <label className="font-bold text-gray-700">對戰時間：</label>
+                                <select 
+                                    className="bg-gray-50 border border-gray-300 text-gray-900 text-lg rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2"
+                                    value={timeSetting}
+                                    onChange={(e) => setTimeSetting(Number(e.target.value))}
+                                >
+                                    <option value={120}>2 分鐘 (速戰)</option>
+                                    <option value={180}>3 分鐘 (標準)</option>
+                                    <option value={300}>5 分鐘 (持久)</option>
+                                </select>
+                            </div>
+
+                            <button 
+                                onClick={startGame}
+                                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-8 rounded-xl text-xl shadow-lg transform transition hover:scale-105"
+                            >
+                                <i className="fa-solid fa-play mr-2"></i> 進入戰場
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            // --- 渲染：遊戲主畫面 ---
+            const gridCells = [];
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    const id = `${x},${y}`;
+                    const owner = board[id];
+                    const isTarget = isConquerable(x, y, turn);
+                    
+                    let tileClass = "tile-unowned";
+                    let content = null;
+
+                    if (owner === 0) {
+                        tileClass = "tile-owned-0";
+                        if (id === "2,4") content = <i className={`fa-solid ${TEAMS[0].icon} text-2xl`}></i>;
+                    } else if (owner === 1) {
+                        tileClass = "tile-owned-1";
+                        if (id === "7,4") content = <i className={`fa-solid ${TEAMS[1].icon} text-2xl`}></i>;
+                    } else if (isTarget) {
+                        tileClass = turn === 0 ? "tile-conquerable-0" : "tile-conquerable-1";
+                        content = <i className={`fa-solid fa-plus text-white/50`}></i>;
+                    }
+
+                    gridCells.push(
+                        <div key={id} className={`tile ${tileClass}`} onClick={() => handleTileClick(x, y)}>
+                            {content}
+                        </div>
+                    );
+                }
+            }
+
+            return (
+                <div className="min-h-screen flex flex-col p-4 max-w-6xl mx-auto font-sans">
+                    
+                    {/* 頂部資訊列 */}
+                    <div className="bg-white rounded-2xl shadow-md p-4 mb-4 flex flex-col md:flex-row justify-between items-center border-b-4 border-gray-200 gap-4">
+                        
+                        {/* 藍隊分數 */}
+                        <div className={`flex items-center gap-4 px-6 py-2 rounded-xl transition-all duration-300 ${turn === 0 ? 'bg-blue-100 shadow-inner scale-105 border-2 border-blue-400' : 'opacity-70'}`}>
+                            <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center text-white text-xl shadow">
+                                <i className={`fa-solid ${TEAMS[0].icon}`}></i>
+                            </div>
+                            <div>
+                                <h2 className="font-bold text-blue-900">{TEAMS[0].name}</h2>
+                                <p className="text-3xl font-black text-blue-600">{scores[0]} <span className="text-sm font-normal text-blue-400">地塊</span></p>
+                            </div>
+                        </div>
+
+                        {/* 計時器與狀態 */}
+                        <div className="text-center">
+                            <div className="text-4xl font-black text-gray-800 font-mono tracking-wider mb-1">
+                                {formatTime(timeLeft)}
+                            </div>
+                            {gameState === 'playing' ? (
+                                <div className={`text-sm font-bold px-4 py-1 rounded-full animate-pulse text-white ${TEAMS[turn].tailwindBg}`}>
+                                    <i className="fa-solid fa-hourglass-half mr-2"></i>輪到 {TEAMS[turn].name} 擴張
+                                </div>
+                            ) : (
+                                <div className="text-sm font-bold px-4 py-1 rounded-full bg-gray-800 text-white">遊戲結束</div>
+                            )}
+                        </div>
+
+                        {/* 紅隊分數 */}
+                        <div className={`flex items-center gap-4 px-6 py-2 rounded-xl transition-all duration-300 ${turn === 1 ? 'bg-red-100 shadow-inner scale-105 border-2 border-red-400' : 'opacity-70'}`}>
+                            <div className="text-right">
+                                <h2 className="font-bold text-red-900">{TEAMS[1].name}</h2>
+                                <p className="text-3xl font-black text-red-600">{scores[1]} <span className="text-sm font-normal text-red-400">地塊</span></p>
+                            </div>
+                            <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center text-white text-xl shadow">
+                                <i className={`fa-solid ${TEAMS[1].icon}`}></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col md:flex-row gap-4 flex-grow">
+                        {/* 戰報日誌 */}
+                        <div className="w-full md:w-1/4 bg-white rounded-2xl shadow-md p-4 flex flex-col">
+                            <h3 className="font-bold text-gray-800 mb-3 border-b pb-2"><i className="fa-solid fa-satellite-dish mr-2"></i>戰況廣播</h3>
+                            <div className="flex-grow space-y-2 overflow-y-auto max-h-[60vh]">
+                                {logs.map((log, i) => (
+                                    <div key={i} className={`text-sm p-2 rounded bg-gray-50 border-l-4 ${log.msg.includes('藍隊') ? 'border-blue-400' : log.msg.includes('紅隊') ? 'border-red-400' : 'border-gray-400'} ${i !== 0 && 'opacity-60'}`}>
+                                        <div className="text-xs text-gray-400 mb-1">{log.time}</div>
+                                        <div className="text-gray-700 font-medium">{log.msg}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* 遊戲地圖 */}
+                        <div className="w-full md:w-3/4 flex justify-center items-center bg-white rounded-2xl shadow-md p-6">
+                            <div className="grid-container w-full max-w-2xl">
+                                {gridCells}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 結算畫面 */}
+                    {gameState === 'ended' && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[100] p-4">
+                            <div className="bg-white rounded-3xl p-10 max-w-md w-full text-center shadow-2xl modal-enter">
+                                <i className="fa-solid fa-trophy text-6xl text-yellow-500 mb-4"></i>
+                                <h2 className="text-3xl font-black text-gray-800 mb-2">戰鬥結束</h2>
+                                <p className="text-lg text-gray-600 mb-6 font-bold">{endReason}</p>
+                                
+                                <div className="flex justify-around items-center mb-8 bg-gray-100 p-4 rounded-xl">
+                                    <div className={`text-center ${winner === 0 ? 'scale-110' : 'opacity-50'}`}>
+                                        <div className="w-16 h-16 mx-auto bg-blue-500 rounded-full flex items-center justify-center text-white text-2xl shadow-lg mb-2"><i className={`fa-solid ${TEAMS[0].icon}`}></i></div>
+                                        <p className="font-bold text-blue-900">{TEAMS[0].name}</p>
+                                        <p className="text-2xl font-black text-blue-600">{scores[0]}</p>
+                                    </div>
+                                    <div className="text-2xl font-black text-gray-400">VS</div>
+                                    <div className={`text-center ${winner === 1 ? 'scale-110' : 'opacity-50'}`}>
+                                        <div className="w-16 h-16 mx-auto bg-red-500 rounded-full flex items-center justify-center text-white text-2xl shadow-lg mb-2"><i className={`fa-solid ${TEAMS[1].icon}`}></i></div>
+                                        <p className="font-bold text-red-900">{TEAMS[1].name}</p>
+                                        <p className="text-2xl font-black text-red-600">{scores[1]}</p>
+                                    </div>
+                                </div>
+
+                                <h3 className="text-2xl font-black mb-8">
+                                    {winner === 'draw' ? <span className="text-gray-600">雙方平手！勢均力敵</span> : 
+                                     <span className={TEAMS[winner].tailwindText}>🎉 恭喜 {TEAMS[winner].name} 獲勝！</span>}
+                                </h3>
+
+                                <button onClick={() => setGameState('setup')} className="w-full bg-gray-800 hover:bg-black text-white font-bold py-3 px-6 rounded-xl transition">
+                                    重新開始遊戲
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 答題 Modal */}
+                    {showModal && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            
+                            {/* 視覺回饋覆蓋層 (答題後顯示) */}
+                            {showVisualFeedback && (
+                                <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 rounded-2xl">
+                                    {showVisualFeedback === 'correct' ? (
+                                        <div className="feedback-overlay text-center bg-green-500 p-8 rounded-full shadow-2xl border-8 border-white">
+                                            <i className="fa-solid fa-face-laugh-squint text-white text-7xl mb-2 block"></i>
+                                            <span className="text-white font-black text-3xl tracking-widest">水啦！</span>
+                                        </div>
+                                    ) : (
+                                        <div className="feedback-overlay text-center bg-gray-700 p-8 rounded-full shadow-2xl border-8 border-white">
+                                            <i className="fa-solid fa-person-digging text-white text-7xl mb-2 block"></i>
+                                            <span className="text-white font-black text-2xl tracking-widest">繼續加油！</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg modal-enter overflow-hidden flex flex-col max-h-[90vh] relative">
+                                {/* Header */}
+                                <div className={`${TEAMS[turn].tailwindBg} p-4 text-white flex justify-between items-center`}>
+                                    <h3 className="font-bold text-lg"><i className="fa-solid fa-swords mr-2"></i>{TEAMS[turn].name} 擴張試煉</h3>
+                                </div>
+                                
+                                {/* Body */}
+                                <div className="p-6 overflow-y-auto">
+                                    <div className="mb-6">
+                                        <h2 className="text-xl font-bold text-gray-800 leading-snug">{currentQuestion?.question}</h2>
+                                    </div>
+
+                                    <div className="space-y-3 mb-6">
+                                        {currentQuestion?.options.map((opt, idx) => {
+                                            let btnClass = "w-full text-left p-4 rounded-xl border-2 transition-all duration-200 ";
+                                            
+                                            if (selectedOption !== null) {
+                                                if (idx === currentQuestion.correctIndex) {
+                                                    btnClass += "bg-green-100 border-green-500 text-green-800 shadow-sm"; 
+                                                } else if (idx === selectedOption) {
+                                                    btnClass += "bg-red-100 border-red-500 text-red-800"; 
+                                                } else {
+                                                    btnClass += "border-gray-200 text-gray-400 opacity-50";
+                                                }
+                                            } else {
+                                                btnClass += "border-gray-200 hover:border-indigo-300 hover:bg-gray-50 text-gray-700";
+                                            }
+
+                                            return (
+                                                <button 
+                                                    key={idx}
+                                                    onClick={() => processAnswer(idx)}
+                                                    disabled={selectedOption !== null}
+                                                    className={btnClass}
+                                                >
+                                                    <div className="flex items-center">
+                                                        <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold mr-3 shrink-0
+                                                            ${selectedOption !== null && idx === currentQuestion.correctIndex ? 'bg-green-500 text-white' : 
+                                                              selectedOption !== null && idx === selectedOption ? 'bg-red-500 text-white' : 
+                                                              'bg-gray-100 text-gray-500'}`}>
+                                                            {String.fromCharCode(65 + idx)}
+                                                        </span>
+                                                        <span className="font-medium text-[15px] leading-relaxed">{opt}</span>
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {/* 解析區塊 */}
+                                    {selectedOption !== null && (
+                                        <div className={`p-4 rounded-xl mb-4 border-l-4 ${selectedOption === currentQuestion.correctIndex ? 'bg-green-50 border-green-500' : 'bg-red-50 border-red-500'}`}>
+                                            <div className="text-gray-700 text-sm leading-relaxed">
+                                                <strong className="text-gray-900">解答：</strong>
+                                                <p className="mt-1">{currentQuestion?.explanation}</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
